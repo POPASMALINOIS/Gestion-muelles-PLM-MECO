@@ -2,34 +2,36 @@ name: 🚀 Build & Deploy Gestion-muelles-PLM-MECO
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
 permissions:
-  contents: write  # necesario para publicar en gh-pages
+  contents: write
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-
     steps:
-      - name: 📥 Checkout del repositorio
+      - name: 📥 Checkout
         uses: actions/checkout@v4
 
-      - name: 🟢 Configurar Node.js
+      - name: 🟢 Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
 
-      - name: 📦 Instalar dependencias
+      - name: 📦 Instalar deps
         run: npm ci
 
-      - name: ⚙️ Compilar proyecto con Vite
+      - name: ⚙️ Build
         run: npm run build
 
-      - name: 📤 Desplegar a GitHub Pages
+      # 👇 fallback SPA: copia index.html como 404.html
+      - name: ➕ Copiar 404.html
+        run: cp dist/index.html dist/404.html
+
+      - name: 📤 Deploy a gh-pages
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
