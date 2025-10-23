@@ -21,27 +21,23 @@ jobs:
         with:
           node-version: 20
 
-      # 👇 Forzamos la ruta raíz del repositorio (donde está package.json)
+      # 👇 Ahora indicamos la carpeta donde está tu proyecto
       - name: 📦 Instalar dependencias
-        working-directory: ./ # 👈 ruta raíz del repo
-        run: |
-          echo "📂 Directorio actual:"
-          pwd
-          echo "📄 Contenido:"
-          ls -la
-          npm install
+        working-directory: ./plmeco-docks-0.9-stable-2025-10-14
+        run: npm install
 
       - name: ⚙️ Compilar con Vite
-        working-directory: ./ # 👈 misma ruta
+        working-directory: ./plmeco-docks-0.9-stable-2025-10-14
         run: npm run build
 
       - name: ➕ Copiar 404.html (SPA fallback)
+        working-directory: ./plmeco-docks-0.9-stable-2025-10-14
         run: cp dist/index.html dist/404.html
 
       - name: 📤 Desplegar a gh-pages
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./dist
+          publish_dir: ./plmeco-docks-0.9-stable-2025-10-14/dist
           publish_branch: gh-pages
           force_orphan: true
