@@ -1,4 +1,4 @@
-name: 🚀 Build & Deploy PLMECO Transporte
+name: 🚀 Build & Deploy Gestion-muelles-PLM-MECO
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write  # necesario para subir a gh-pages
+  contents: write  # necesario para publicar en gh-pages
 
 jobs:
   build-and-deploy:
