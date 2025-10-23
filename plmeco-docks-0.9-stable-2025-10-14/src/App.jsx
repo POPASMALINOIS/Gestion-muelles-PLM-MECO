@@ -1,3 +1,6 @@
-import React from 'react'
-import MecoDockManager from '@/components/MecoDockManager'
-export default function App(){ return <MecoDockManager/> }
+import React from "react";
+import MecoDockManager from "./MecoDockManager.tsx";
+
+export default function App() {
+  return <MecoDockManager />;
+}
