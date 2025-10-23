@@ -6,31 +6,33 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write  # necesario para publicar en gh-pages
+  contents: write
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 📥 Checkout
+      - name: 📥 Checkout del código
         uses: actions/checkout@v4
 
-      - name: 🟢 Setup Node.js
+      - name: 🟢 Configurar Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: 📦 Instalar dependencias (sin lockfile)
+      - name: 📦 Instalar dependencias
         run: npm install
+        working-directory: .   # 👈 asegura que busca el package.json correcto
 
-      - name: ⚙️ Build Vite
+      - name: ⚙️ Compilar con Vite
         run: npm run build
+        working-directory: .   # 👈 ejecuta el build desde la raíz del repo
 
       - name: ➕ Copiar 404.html (SPA fallback para GitHub Pages)
         run: cp dist/index.html dist/404.html
 
-      - name: 📤 Deploy a gh-pages
+      - name: 📤 Desplegar a gh-pages
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
