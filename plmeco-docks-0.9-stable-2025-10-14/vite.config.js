@@ -2,7 +2,6 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
+  base: '/Gestion-muelles-PLM-MECO/', // 👈 exacto, con mayúsculas y guiones
   plugins: [react()],
-  resolve: { alias: { '@': '/src' } },
-  base: '/plmeco-docks/' // <- si tu repo se llama distinto, cámbialo
 })
