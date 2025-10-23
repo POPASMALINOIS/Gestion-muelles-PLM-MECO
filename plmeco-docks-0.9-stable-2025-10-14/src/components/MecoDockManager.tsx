@@ -8,27 +8,31 @@ import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Download, FileUp, Plus, Trash2, X } from "lucide-react";
+import { Download, FileUp, Plus, Trash2 } from "lucide-react";
 import * as XLSX from "xlsx";
-import { motion } from "framer-motion";
 
 /**
  * MECO – Gestión de Muelles (WEB)
- * ----------------------------------------------------------------------------
- * - Importa .xlsx con columnas: Transportista, Matrícula, Destino, Llegada, Salida,
- *   Salida Tope, Observaciones (headers tolerantes por mayúsculas/acentos).
- * - Añade columnas editables: Muelle, Precinto, Llegada Real, Salida Real, Incidencias.
- * - 10 pestañas de "Lado 0" a "Lado 9".
- * - Vista de muelles en tiempo real (colores): Verde=Libre, Amarillo=Espera, Rojo=Ocupado.
- * - Estados de camión: OK (Verde), CARGANDO (Amarillo), ANULADO (Rojo) + filtro.
- * - Click en un muelle: muestra Destino, Matrícula y Estado.
- * - Reloj en esquina superior derecha.
- * - Persistencia localStorage + difusión opcional con WebSocket (window.MECO_WS_URL) o BroadcastChannel.
- * - UI con stubs shadcn/ui + Tailwind. Componente exportado por defecto.
- * ----------------------------------------------------------------------------
+ * --------------------------------------------------------------------------
+ * Cambios solicitados:
+ *  - Eliminado el botón "SLA Espera" en la summary bar superior.
+ *  - Eliminada cualquier coloración roja/amarilla en las filas por “SALIDA TOPE”.
+ *    (La tabla se muestra limpia; NO se aplica resalte por proximidad a tiempos).
+ *
+ * Funcionalidad:
+ *  - Importa .xlsx con columnas base: TRANSPORTISTA, MATRICULA, DESTINO, LLEGADA,
+ *    SALIDA, SALIDA TOPE, OBSERVACIONES (se aceptan alias y mayúsculas/acentos).
+ *  - Campos extra editables: MUELLE, PRECINTO, LLEGADA REAL, SALIDA REAL, INCIDENCIAS, ESTADO.
+ *  - 10 pestañas de “Lado 0” a “Lado 9”.
+ *  - Vista de muelles (colores por estado de muelle): Verde=Libre, Amarillo=Espera, Rojo=Ocupado.
+ *  - Estados de camión: OK, CARGANDO, ANULADO (con filtro).
+ *  - Click en muelle abre panel lateral con detalle de asignación.
+ *  - Persistencia localStorage + difusión opcional con BroadcastChannel y WebSocket (window.MECO_WS_URL).
+ *  - UI con stubs de shadcn/ui + Tailwind (componentes en src/components/ui/*).
+ * --------------------------------------------------------------------------
  */
 
-// --------------------------- Utilidades generales ---------------------------
+// --------------------------- Constantes y utilidades ---------------------------
 const DOCKS = [
   312,313,314,315,316,317,318,319,320,321,322,323,324,325,326,327,328,329,330,331,332,333,334,335,336,337,
   351,352,353,354,355,356,357,359,360,361,362,363,364,365,366,367,368,369,
@@ -45,28 +49,27 @@ const INCIDENTES = [
 ];
 
 const CAMION_ESTADOS = [
-  { key: "OK", label: "OK", color: "bg-emerald-500" },
+  { key: "OK", label: "OK", color: "bg-emerald-600" },
   { key: "CARGANDO", label: "CARGANDO", color: "bg-amber-500" },
   { key: "ANULADO", label: "ANULADO", color: "bg-red-600" },
 ];
 
 const HEADER_ALIASES: Record<string, string> = {
   transportista: "TRANSPORTISTA",
-  "transporte": "TRANSPORTISTA",
-  "carrier": "TRANSPORTISTA",
-  "matricula": "MATRICULA",
-  "matrícula": "MATRICULA",
-  "placa": "MATRICULA",
-  "destino": "DESTINO",
-  "llegada": "LLEGADA",
-  "entrada": "LLEGADA",
-  "salida": "SALIDA",
+  transporte: "TRANSPORTISTA",
+  carrier: "TRANSPORTISTA",
+  matricula: "MATRICULA",
+  matrícula: "MATRICULA",
+  placa: "MATRICULA",
+  destino: "DESTINO",
+  llegada: "LLEGADA",
+  entrada: "LLEGADA",
+  salida: "SALIDA",
   "salida tope": "SALIDA TOPE",
-  "cierre": "SALIDA TOPE",
-  "observaciones": "OBSERVACIONES",
+  cierre: "SALIDA TOPE",
+  observaciones: "OBSERVACIONES",
 };
 
-// Normaliza nombres de cabecera (case-insensitive, quita tildes)
 function norm(s: string) {
   return (s || "")
     .toLowerCase()
@@ -74,12 +77,10 @@ function norm(s: string) {
     .replace(/\p{Diacritic}/gu, "")
     .trim();
 }
-
 function mapHeader(name: string) {
   const n = norm(name);
   return HEADER_ALIASES[n] || name.toUpperCase();
 }
-
 function nowISO() {
   const d = new Date();
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -127,7 +128,7 @@ export type OperativaRow = {
   PRECINTO?: string;
   "LLEGADA REAL"?: string;
   "SALIDA REAL"?: string;
-  INCIDENCIAS?: string; // una de INCIDENTES o libre
+  INCIDENCIAS?: string;
   ESTADO?: "OK" | "CARGANDO" | "ANULADO";
 };
 
@@ -141,17 +142,11 @@ export type AppState = {
 };
 
 // ----------------------------- Comunicación RT -----------------------------
-/**
- * BroadcastChannel para sincronizar entre pestañas del mismo equipo.
- * Además, si window.MECO_WS_URL está definido (ws://host:puerto),
- * se usa un WebSocket para sincronizar entre equipos.
- */
 function useRealtimeSync(state: AppState, setState: (s: AppState) => void) {
   const bcRef = useRef<BroadcastChannel | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
-    // Broadcast local
     try { bcRef.current = new BroadcastChannel("meco-docks"); } catch {}
     const bc = bcRef.current;
     const onMsg = (ev: MessageEvent) => {
@@ -179,7 +174,6 @@ function useRealtimeSync(state: AppState, setState: (s: AppState) => void) {
     return () => { try { ws.close(); } catch {} };
   }, [setState]);
 
-  // Difundir cada cambio local
   useEffect(() => {
     try { bcRef.current?.postMessage({ type: "APP_STATE", payload: state }); } catch {}
     try { wsRef.current?.send(JSON.stringify({ type: "APP_STATE", payload: state })); } catch {}
@@ -204,11 +198,9 @@ function deriveDocks(lados: Record<string, LadoState>) {
       if (llegadaReal) state = "OCUPADO";
       if (salidaReal) state = "LIBRE"; // salida libera muelle
 
-      // Si está libre por salidaReal, ignora; sino marca
       if (state !== "LIBRE") {
         dockMap.set(mu, { state, row, lado: ladoName });
       } else {
-        // Asegurar que quede LIBRE si salidaReal existe
         if (dockMap.has(mu)) {
           const prev = dockMap.get(mu)!;
           if (prev.state !== "OCUPADO") dockMap.set(mu, { state: "LIBRE" });
@@ -223,12 +215,6 @@ function dockColor(state: DockState) {
   if (state === "LIBRE") return "bg-emerald-500";
   if (state === "ESPERA") return "bg-amber-500";
   return "bg-red-600"; // OCUPADO
-}
-
-function estadoBadgeColor(estado?: OperativaRow["ESTADO"]) {
-  if (estado === "ANULADO") return "bg-red-600";
-  if (estado === "CARGANDO") return "bg-amber-500";
-  return "bg-emerald-600"; // OK por defecto
 }
 
 // ------------------------------- Tabla editable ----------------------------
@@ -249,7 +235,6 @@ const EXTRA_HEADERS = [
   "INCIDENCIAS",
   "ESTADO",
 ];
-
 const ALL_HEADERS = [...BASE_HEADERS, ...EXTRA_HEADERS];
 
 function EditableCell({
@@ -365,9 +350,9 @@ export default function MecoDockManager() {
   const [active, setActive] = useState<string>(LADOS[0]);
   const [filterEstado, setFilterEstado] = useState<string>("TODOS");
   const [clock, setClock] = useState(nowISO());
-  const [dockPanel, setDockPanel] = useState<{ open: boolean; dock?: number; info?: { row?: OperativaRow; lado?: string } }>(
-    { open: false }
-  );
+  const [panel, setPanel] = useState<{ open: boolean; dock?: number; info?: { row?: OperativaRow; lado?: string } }>({
+    open: false,
+  });
 
   useRealtimeSync(app, setApp);
 
@@ -421,7 +406,6 @@ export default function MecoDockManager() {
           const mk = mapHeader(k);
           mapped[mk] = row[k];
         }
-        // Garantiza todas las cabeceras
         for (const h of ALL_HEADERS) if (!(h in mapped)) mapped[h] = "";
         return {
           id: crypto.randomUUID(),
@@ -469,6 +453,7 @@ export default function MecoDockManager() {
   return (
     <TooltipProvider>
       <div className="w-full min-h-screen p-4 md:p-6 bg-gradient-to-b from-slate-50 to-white">
+        {/* Header limpio sin botón SLA */}
         <header className="flex items-center gap-2 justify-between mb-4">
           <h1 className="text-2xl font-bold tracking-tight">PLMECO · Gestión de Muelles</h1>
           <div className="text-right">
@@ -490,6 +475,7 @@ export default function MecoDockManager() {
                     <TabsTrigger key={n} value={n} className="px-3">{n}</TabsTrigger>
                   ))}
                 </TabsList>
+
                 <div className="mt-3">
                   <Toolbar
                     onImport={(f) => importExcel(f, active)}
@@ -504,51 +490,57 @@ export default function MecoDockManager() {
                 {LADOS.map((n) => (
                   <TabsContent key={n} value={n} className="mt-4">
                     <div className="border rounded-xl overflow-hidden">
+                      {/* Cabecera de tabla */}
                       <div className="grid grid-cols-12 gap-px bg-slate-200">
                         {ALL_HEADERS.map((h) => (
                           <div key={h} className="col-span-2 bg-slate-50 p-2"><Header title={h} /></div>
                         ))}
                         <div className="col-span-1 bg-slate-50 p-2"><Header title="Acciones" /></div>
                       </div>
+                      {/* Filas (sin coloraciones SLA) */}
                       <ScrollArea className="h-[48vh]">
                         {filteredRows(n).map((row) => (
                           <div key={row.id} className="grid grid-cols-12 gap-px bg-slate-200">
-                            {/* Campos base + extra */}
-                            {ALL_HEADERS.map((h, idx) => {
+                            {ALL_HEADERS.map((h) => {
                               const isNumber = h === "MUELLE";
                               const isEstado = h === "ESTADO";
                               const isInc = h === "INCIDENCIAS";
-                              const input = (
-                                <EditableCell
-                                  value={(row as any)[h]}
-                                  onChange={(v) => {
-                                    // Validación de muelle: debe existir o quedar vacío
-                                    if (h === "MUELLE") {
-                                      const val = String(v).trim();
-                                      if (!val) return updateRow(n, row.id, { MUELLE: "" });
-                                      const num = Number(val);
-                                      if (!DOCKS.includes(num)) return; // ignora inválidos
-                                      return updateRow(n, row.id, { MUELLE: num });
-                                    }
-                                    if (h === "ESTADO") return updateRow(n, row.id, { ESTADO: v as any });
-                                    if (h === "INCIDENCIAS") return updateRow(n, row.id, { INCIDENCIAS: v });
-                                    updateRow(n, row.id, { [h]: v } as any);
-                                  }}
-                                  type={isNumber ? "number" : isEstado || isInc ? "select" : "text"}
-                                  options={
-                                    isEstado ? CAMION_ESTADOS.map((e) => e.key) :
-                                    isInc ? INCIDENTES : undefined
-                                  }
-                                  className={`rounded-none border-0 bg-white ${idx % 2 ? "" : ""}`}
-                                />
-                              );
+                              const cellType: "text" | "number" | "select" =
+                                isNumber ? "number" : (isEstado || isInc) ? "select" : "text";
+                              const options =
+                                isEstado ? CAMION_ESTADOS.map((e) => e.key) :
+                                isInc ? INCIDENTES : undefined;
+
                               return (
-                                <div key={h} className="col-span-2 bg-white p-1 flex items-center">{input}</div>
+                                <div key={h} className="col-span-2 bg-white p-1.5">
+                                  <EditableCell
+                                    value={(row as any)[h]}
+                                    type={cellType}
+                                    options={options}
+                                    onChange={(v) => {
+                                      if (h === "MUELLE") {
+                                        const val = String(v).trim();
+                                        if (!val) return updateRow(n, row.id, { MUELLE: "" });
+                                        const num = Number(val);
+                                        if (!DOCKS.includes(num)) return; // ignora inválidos
+                                        return updateRow(n, row.id, { MUELLE: num });
+                                      }
+                                      if (h === "ESTADO") return updateRow(n, row.id, { ESTADO: v as any });
+                                      if (h === "INCIDENCIAS") return updateRow(n, row.id, { INCIDENCIAS: v });
+                                      updateRow(n, row.id, { [h]: v } as any);
+                                    }}
+                                  />
+                                </div>
                               );
                             })}
-                            <div className="col-span-1 bg-white p-1 flex items-center justify-center">
-                              <Button size="icon" variant="ghost" onClick={() => removeRow(n, row.id)}>
-                                <X className="w-4 h-4" />
+                            <div className="col-span-1 bg-white p-1.5 flex items-center gap-2">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => removeRow(n, row.id)}
+                                title="Eliminar fila"
+                              >
+                                <Trash2 className="h-4 w-4" />
                               </Button>
                             </div>
                           </div>
@@ -561,34 +553,41 @@ export default function MecoDockManager() {
             </CardContent>
           </Card>
 
-          {/* Columna derecha: estado de muelles */}
-          <Card className="lg:col-span-1">
-            <CardHeader className="pb-2 flex flex-col gap-2">
-              <CardTitle>Muelles (tiempo real)</CardTitle>
-              {legend}
+          {/* Columna derecha: mapa de muelles */}
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle>Estado de muelles</CardTitle>
+                {legend}
+              </div>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
                 {DOCKS.map((d) => {
                   const info = docks.get(d)!;
                   const color = dockColor(info.state);
-                  const label = `${d}`;
-                  const tooltip = info.row
-                    ? `${label} • ${info.row.MATRICULA || "?"} • ${info.row.DESTINO || "?"} • ${(info.row.ESTADO || "OK")}`
-                    : `${label} • Libre`;
                   return (
                     <Tooltip key={d}>
                       <TooltipTrigger asChild>
-                        <motion.button
-                          whileTap={{ scale: 0.96 }}
-                          onClick={() => setDockPanel({ open: true, dock: d, info })}
-                          className={`h-10 rounded-2xl text-white text-sm font-semibold shadow ${color}`}
+                        <button
+                          className="group w-full rounded-lg border p-2 text-left hover:bg-slate-50"
+                          onClick={() => setPanel({ open: true, dock: d, info })}
                         >
-                          {label}
-                        </motion.button>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium">{d}</span>
+                            <span className={`inline-block w-3 h-3 rounded ${color}`} />
+                          </div>
+                          {info.row ? (
+                            <div className="mt-1 text-xs text-slate-600 truncate">
+                              {info.row.DESTINO || "—"} · {info.row.MATRICULA || "—"}
+                            </div>
+                          ) : (
+                            <div className="mt-1 text-xs text-slate-400">Sin asignación</div>
+                          )}
+                        </button>
                       </TooltipTrigger>
                       <TooltipContent>
-                        <p>{tooltip}</p>
+                        <div className="text-xs">Muelle {d} · {info.state}</div>
                       </TooltipContent>
                     </Tooltip>
                   );
@@ -598,77 +597,38 @@ export default function MecoDockManager() {
           </Card>
         </div>
 
-        {/* Panel lateral info de muelle */}
-        <Sheet open={dockPanel.open} onOpenChange={(o: boolean) => setDockPanel((p) => ({ ...p, open: o }))}>
-          <SheetContent side="right" className="w-[420px] sm:w-[480px]">
+        {/* Panel lateral de muelle */}
+        <Sheet open={panel.open} onOpenChange={(v: boolean) => setPanel((p) => ({ ...p, open: v }))}>
+          <SheetContent side="right">
             <SheetHeader>
-              <SheetTitle>Muelle {dockPanel.dock}</SheetTitle>
+              <SheetTitle>Muelle {panel.dock}</SheetTitle>
             </SheetHeader>
-            <div className="mt-4 space-y-3">
-              {(() => {
-                const info = dockPanel.info;
-                if (!info || !dockPanel.dock) return (
-                  <div className="text-muted-foreground">Sin información.</div>
-                );
-                if (!info.row) return (
-                  <div className="text-emerald-600 font-medium">Muelle libre</div>
-                );
-                const r = info.row;
-                return (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="text-sm text-muted-foreground">Lado</div>
-                      <div className="font-medium">{info.lado}</div>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="text-sm text-muted-foreground">Matrícula</div>
-                      <div className="font-medium">{r.MATRICULA || "—"}</div>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="text-sm text-muted-foreground">Destino</div>
-                      <div className="font-medium">{r.DESTINO || "—"}</div>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="text-sm text-muted-foreground">Estado</div>
-                      <Badge className={`${estadoBadgeColor(r.ESTADO)} text-white`}>{r.ESTADO || "OK"}</Badge>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 pt-2">
-                      <div>
-                        <Header title="Llegada real" />
-                        <Input
-                          value={r["LLEGADA REAL"] || ""}
-                          onChange={(e: any) => updateRow(info.lado!, r.id, { "LLEGADA REAL": e.target.value })}
-                          placeholder="hh:mm / ISO"
-                        />
-                      </div>
-                      <div>
-                        <Header title="Salida real" />
-                        <Input
-                          value={r["SALIDA REAL"] || ""}
-                          onChange={(e: any) => updateRow(info.lado!, r.id, { "SALIDA REAL": e.target.value })}
-                          placeholder="hh:mm / ISO"
-                        />
-                      </div>
-                    </div>
-                    <div className="pt-2">
-                      <Header title="Observaciones" />
-                      <Input
-                        value={r.OBSERVACIONES || ""}
-                        onChange={(e: any) => updateRow(info.lado!, r.id, { OBSERVACIONES: e.target.value })}
-                        placeholder="Añade notas"
-                      />
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
+
+            {panel.info?.row ? (
+              <div className="space-y-3 text-sm">
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-slate-800 text-white">{panel.info.row.ESTADO || "OK"}</Badge>
+                </div>
+                <div><span className="text-slate-500">Transportista:</span> <span className="font-medium">{panel.info.row.TRANSPORTISTA || "—"}</span></div>
+                <div><span className="text-slate-500">Matrícula:</span> <span className="font-medium">{panel.info.row.MATRICULA || "—"}</span></div>
+                <div><span className="text-slate-500">Destino:</span> <span className="font-medium">{panel.info.row.DESTINO || "—"}</span></div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div><span className="text-slate-500">Llegada plan.:</span> <span className="font-medium">{panel.info.row.LLEGADA || "—"}</span></div>
+                  <div><span className="text-slate-500">Salida plan.:</span> <span className="font-medium">{panel.info.row.SALIDA || "—"}</span></div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div><span className="text-slate-500">Llegada real:</span> <span className="font-medium">{panel.info.row["LLEGADA REAL"] || "—"}</span></div>
+                  <div><span className="text-slate-500">Salida real:</span> <span className="font-medium">{panel.info.row["SALIDA REAL"] || "—"}</span></div>
+                </div>
+                <div><span className="text-slate-500">Precinto:</span> <span className="font-medium">{panel.info.row.PRECINTO || "—"}</span></div>
+                <div><span className="text-slate-500">Incidencias:</span> <span className="font-medium">{panel.info.row.INCIDENCIAS || "—"}</span></div>
+                <div><span className="text-slate-500">Observaciones:</span> <span className="font-medium">{panel.info.row.OBSERVACIONES || "—"}</span></div>
+              </div>
+            ) : (
+              <div className="text-sm text-slate-600">Este muelle no tiene camión asignado.</div>
+            )}
           </SheetContent>
         </Sheet>
-
-        <footer className="mt-6 text-xs text-muted-foreground flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
-          <div>Estados camión: <Badge className="bg-emerald-600">OK</Badge> · <Badge className="bg-amber-500">CARGANDO</Badge> · <Badge className="bg-red-600">ANULADO</Badge></div>
-          <div>© {new Date().getFullYear()} PLMECO · Plataforma Logística Meco (Inditex)</div>
-        </footer>
       </div>
     </TooltipProvider>
   );
